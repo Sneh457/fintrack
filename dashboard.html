@@ -1,0 +1,267 @@
+{% extends 'base.html' %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .form-input, .form-select, .form-textarea {
+        @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500;
+    }
+    .category-badge {
+        @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    }
+    /* New floating add button */
+    .add-expense-btn {
+        @apply fixed bottom-8 right-8 bg-primary-600 text-white p-4 rounded-full shadow-lg hover:bg-primary-700 transition-all;
+        z-index: 50;
+    }
+    /* Modal styles */
+    .modal-overlay {
+        @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
+    }
+    .modal-content {
+        @apply bg-white rounded-xl shadow-xl p-6 w-full max-w-md;
+    }
+</style>
+{% endblock %}
+
+{% block content %}    <nav class="bg-white/80 backdrop-blur-md border-b border-white/20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="{% url 'home' %}" class="flex items-center text-xl font-bold text-gray-900">
+                        <span class="mr-2">💰</span>
+                        <span>FinTrack</span>
+                    </a>
+                </div>
+<div class="flex items-center space-x-4">
+    {% if user.is_authenticated %}
+        <a href="{% url 'home' %}" class="text-gray-600 hover:text-primary-600 px-3 py-2 text-sm font-medium">Home</a>
+        <form action="{% url 'logout' %}" method="post" class="inline">
+            {% csrf_token %}
+            <button type="submit" class="text-gray-600 hover:text-primary-600 px-3 py-2 text-sm font-medium">Logout</button>
+        </form>
+    {% else %}
+        <a href="{% url 'login' %}" class="text-gray-600 hover:text-primary-600 px-3 py-2 text-sm font-medium">Login</a>
+        <a href="{% url 'signup' %}" class="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 transition-colors">Sign Up</a>
+    {% endif %}
+</div>
+            </div>
+        </div>
+    </nav>
+<div class="gradient-bg min-h-screen p-4 md:p-8">
+    <!-- Floating Add Button (Mobile) -->
+    <button id="openModalBtn" class="add-expense-btn md:hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+        </svg>
+    </button>
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-900">
+                Welcome, {{ request.user.username }}!
+            </h1>
+            <div class="text-xl font-semibold text-primary-600">
+                Total: ${{ total_expenses }}
+            </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Add Expense Form (Desktop) -->
+            <div class="lg:col-span-1 glass-card p-6 rounded-2xl hidden md:block">
+                <h2 class="text-xl font-semibold mb-4">Add New Expense</h2>
+                <form method="post" action="{% url 'add_expense' %}">
+                    {% csrf_token %}
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-medium mb-2">
+                            Amount ($)
+                        </label>
+                        <input type="number" step="0.01" name="amount" required 
+                               class="form-input" placeholder="0.00">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-medium mb-2">
+                            Category
+                        </label>
+                        <select name="category" class="form-select" required>
+                            <option value="" disabled selected>Select a category</option>
+                            <option value="FOOD">Food</option>
+                            <option value="ENTERTAINMENT">Entertainment</option>
+                            <option value="TRANSPORT">Transport</option>
+                            <option value="BILLS">Bills</option>
+                            <option value="SHOPPING">Shopping</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-medium mb-2">
+                            Description (Optional)
+                        </label>
+                        <textarea name="description" class="form-textarea" rows="3" 
+                                  placeholder="What was this expense for?"></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-primary-600 text-white py-2 px-4 rounded-md hover:bg-primary-700 transition-colors">
+                        Add Expense
+                    </button>
+                </form>
+            </div>
+
+            <!-- Chart -->
+            <div class="lg:col-span-2 glass-card p-6 rounded-2xl">
+                <h2 class="text-xl font-semibold mb-4">Spending by Category</h2>
+                <div class="h-64 md:h-80">
+                    <canvas id="expenseChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Recent Expenses -->
+            <div class="lg:col-span-3 glass-card p-6 rounded-2xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">Recent Expenses</h2>
+                    <button id="openModalBtnDesktop" class="md:hidden bg-primary-600 text-white px-4 py-2 rounded-md text-sm hover:bg-primary-700">
+                        + Add Expense
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200/50">
+                        <!-- Table content remains the same -->
+                        <thead class="bg-gray-50/50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white/30 divide-y divide-gray-200/30">
+                            {% for expense in expenses %}
+                            <tr class="hover:bg-gray-50/50 transition-colors">
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{{ expense.date|date:"M d, Y" }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm font-semibold text-red-600">-${{ expense.amount }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap">
+                                    <span class="category-badge 
+                                        {% if expense.category == 'FOOD' %}bg-green-100 text-green-800
+                                        {% elif expense.category == 'ENTERTAINMENT' %}bg-blue-100 text-blue-800
+                                        {% elif expense.category == 'TRANSPORT' %}bg-yellow-100 text-yellow-800
+                                        {% elif expense.category == 'BILLS' %}bg-red-100 text-red-800
+                                        {% elif expense.category == 'SHOPPING' %}bg-purple-100 text-purple-800
+                                        {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                        {{ expense.get_category_display }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-700">{{ expense.description|truncatechars:30 }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="4" class="px-4 py-3 text-center text-gray-500">No expenses recorded yet</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Expense Modal -->
+<div id="expenseModal" class="modal-overlay hidden">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold">Add New Expense</h3>
+            <button id="closeModalBtn" class="text-gray-500 hover:text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <form method="post" action="{% url 'add_expense' %}">
+            {% csrf_token %}
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-medium mb-2">
+                    Amount ($)
+                </label>
+                <input type="number" step="0.01" name="amount" required 
+                       class="form-input" placeholder="0.00">
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-medium mb-2">
+                    Category
+                </label>
+                <select name="category" class="form-select" required>
+                    <option value="" disabled selected>Select a category</option>
+                    <option value="FOOD">Food</option>
+                    <option value="ENTERTAINMENT">Entertainment</option>
+                    <option value="TRANSPORT">Transport</option>
+                    <option value="BILLS">Bills</option>
+                    <option value="SHOPPING">Shopping</option>
+                    <option value="OTHER">Other</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-medium mb-2">
+                    Description (Optional)
+                </label>
+                <textarea name="description" class="form-textarea" rows="3" 
+                          placeholder="What was this expense for?"></textarea>
+            </div>
+            <button type="submit" class="w-full bg-primary-600 text-white py-2 px-4 rounded-md hover:bg-primary-700 transition-colors">
+                Add Expense
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Chart initialization (same as before)
+    const ctx = document.getElementById('expenseChart').getContext('2d');
+    const chartData = JSON.parse('{{ chart_data|escapejs }}');
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: chartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.label}: $${context.raw}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Modal functionality
+    const modal = document.getElementById('expenseModal');
+    const openModalBtns = document.querySelectorAll('[id^="openModalBtn"]');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+
+    openModalBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            modal.classList.remove('hidden');
+        });
+    });
+
+    closeModalBtn.addEventListener('click', () => {
+        modal.classList.add('hidden');
+    });
+
+    // Close modal when clicking outside
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.classList.add('hidden');
+        }
+    });
+});
+</script>
+{% endblock %}
